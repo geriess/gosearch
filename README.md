@@ -1,2 +1,2 @@
 # gosearch
-An OS search in text utility written in Go.
+An OS "search in text" utility written in Go.
