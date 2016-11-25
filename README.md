@@ -1,4 +1,8 @@
 # gosearch
 An OS "search in text" utility written in Go.
 
-Main functionality is still work-in-progress.  
+Usage:
+    go run gosearch.go -p path -k keyword
+
+
+
