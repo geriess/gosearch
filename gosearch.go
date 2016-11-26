@@ -19,7 +19,8 @@ var (
 
 func usage() {
 	fmt.Println("Usage:")
-	fmt.Println("    gosearch -p path -k keyword")
+	fmt.Println("    gosearch [OPTIONS] -p path -k keyword")
+	flag.PrintDefaults()
 }
 
 func duration(start time.Time, name string) {
@@ -38,16 +39,29 @@ func errorOut(message string) bool {
 	return false
 }
 
+func exists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
+}
+
 func init() {
 	flag.StringVar(&inputDir, "p", "", "Path to directory to search")
 	flag.StringVar(&searchText, "k", "", "Keyword to search")
-	flag.BoolVar(&verbose, "v", false, "verbose")
+	flag.BoolVar(&verbose, "v", false, "Verbose (prints all files searched)")
+	//TODO option to return in JSON format
+	//TODO option to exclude hidden files in search
 }
 
 func main() {
 	start := time.Now()
-
+	fmt.Println("==================================")
 	fmt.Println("gosearch: A search in text utility written in Go.")
+	fmt.Println("searching...")
+	fmt.Println("==================================")
 
 	flag.Parse()
 
@@ -66,31 +80,48 @@ func main() {
 		usage()
 		os.Exit(1)
 	}
-
+	// walk directory
 	err := filepath.Walk(inputDir, func(path string, f os.FileInfo, _ error) error {
+		// if files
 		if !f.IsDir() {
-			filesVisited++
-			// read file
-			content, err := ioutil.ReadFile(path)
-			errorCheck(err)
-			x := string(content)
-
-			// search for keyword
-			search := strings.Contains(x, searchText)
-			switch search {
-			case true:
-				filesFound++
-				fmt.Printf("%s FILE contains %s\n", path, searchText)
-			case false:
+			// check if file exists
+			exist := exists(path)
+			if !exist {
 				if !verbose {
-					// hide non-matches
-					fmt.Printf("")
-				} else {
-					// show non-matches
+					return nil
+				}
+				fmt.Printf("%s DOES NOT EXIST\n", path)
+			} else {
+				filesVisited++
+				// read file
+				content, err := ioutil.ReadFile(path)
+				if err != nil {
+					if !verbose {
+						fmt.Print("")
+						return nil
+					}
+					fmt.Printf("%s FILE cannot be read\n", path)
+					return nil
+				}
+
+				// convert file contents to string
+				x := string(content)
+
+				// search file contents for keyword
+				search := strings.Contains(x, searchText)
+				switch search {
+				case true:
+					filesFound++
+					fmt.Printf("%s FILE contains %s\n", path, searchText)
+				case false:
+					if !verbose {
+						return nil
+					}
 					fmt.Printf("%s FILE does not contain %s\n", path, searchText)
 				}
 			}
 		} else {
+			// if directories
 			foldersVisited++
 			if !verbose {
 				fmt.Printf("")
@@ -102,8 +133,9 @@ func main() {
 	})
 	errorCheck(err)
 
-	// summary
+	// print summary
 	fmt.Println("==================================")
+	log.Println("")
 	fmt.Printf("Done searching for %s\n", searchText)
 	fmt.Printf("Path: %s\n", inputDir)
 	fmt.Printf("Checked %d files in %d directories\n", filesVisited, foldersVisited)
