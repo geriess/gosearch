@@ -14,9 +14,13 @@ go run gosearch.go -p path -k keyword
 ```
 
 **[OPTIONS]**
-    -k : Keyword to search
-    -p : Path to directory to search
-    -v : Verbose (prints all files searched)
+
+`-k` - Keyword to search
+
+`-p` - Path to directory to search
+
+`-v` - Verbose (prints all files searched)
+
 
 Note that you **first** need to install  <a href="https://golang.org/" target="_blank">Go</a>
 
