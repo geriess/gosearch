@@ -15,11 +15,11 @@ go run gosearch.go -p path -k keyword
 
 **[OPTIONS]**
 
-`-k` - Keyword to search
+- `-k` : Keyword to search
 
-`-p` - Path to directory to search
+- `-p` : Path to directory to search
 
-`-v` - Verbose (prints all files searched)
+- `-v` : Verbose (prints all files searched)
 
 
 Note that you **first** need to install  <a href="https://golang.org/" target="_blank">Go</a>
@@ -41,6 +41,8 @@ The output of the utility includes:
 - `visited file count` - utility output with total count of files visited
 
 - `visited folder count` - utility output with total count of folders visited
+
+- `elapsed time` - utility output of time it took to search
 
 If Verbose is selected by user:
 
