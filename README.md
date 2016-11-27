@@ -2,15 +2,27 @@
 
 An OS "search in text" utility written in Go. 
 
-This utility will walk through the directory you specify, including any sub-folders, and return any files whose contents match the keyword.
+This utility will walk through the directory you specify, including any sub-folders, and return any files whose contents match the keyword you provide.
 
-The search also includes hidden files.
+The search supports system files as well as user created files (e.g. pdf, doc, txt, ini, cfg, etc...). It also searches hidden directories and files.
+
+### Installation:
+
+Note that you **first** need to install  <a href="https://golang.org/" target="_blank">Go</a>
+
+After you've installed Go, open your terminal (or command console) and type:
+```
+go get github.com/geriess/gosearch
+```
+
+The above command automatically fetches the source code and any dependencies, compile the binary and puts an executable binary in the $GOPATH/bin directory. The $GOPATH is the Go working folder that was configured when you installed Go.
+
 
 ### Usage:
 
-Open your terminal (or command console) and type
+Open your terminal (or command console) and type:
 ```
-go run gosearch.go -p path -k keyword
+gosearch -p path -k keyword
 ```
 
 **[OPTIONS]**
@@ -21,8 +33,6 @@ go run gosearch.go -p path -k keyword
 
 - `-v` : Verbose (prints all files searched)
 
-
-Note that you **first** need to install  <a href="https://golang.org/" target="_blank">Go</a>
 
 ### Results:
 
