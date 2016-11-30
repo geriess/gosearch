@@ -8,13 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 var (
-	inputDir   string
-	searchText string
-	verbose    bool
+	inputDir    string         // user input; top-level path to search
+	searchText  string         // user input; keyword to search
+	verbose     bool           // user input; if true displays all paths
+	numFound    int            // # of files matching keyword
+	fileVisit   int            // # of files visited by search
+	folderVisit int            // # of folders visited during search
+	wg          sync.WaitGroup // synchronize channels and goroutines
 )
 
 func usage() {
@@ -56,8 +61,105 @@ func init() {
 	//TODO option to exclude hidden files in search
 }
 
+func readDir(path string) os.FileInfo {
+	var x os.FileInfo
+	files, err := ioutil.ReadDir(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, file := range files {
+		x = file
+		fmt.Println(file.Name(), file.IsDir())
+	}
+	return x
+}
+
+func walkDir(path string, f os.FileInfo, err error) error {
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Printf("%s with %d bytes\n", path, f.Size())
+	}
+	return nil
+}
+
+func getFiles(path string) {
+	err := filepath.Walk(path, walkDir)
+	if err != nil {
+		fmt.Printf(err.Error())
+	}
+}
+
+type walkresult struct {
+	path  string
+	found bool
+}
+
+func walkFiles(directory string, keyword string) (<-chan walkresult, <-chan error) {
+	// create channels
+	filesFound := make(chan walkresult)
+	walkResult := make(chan error, 1)
+
+	// launch goroutine to walk path; add wait count
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := filepath.Walk(directory, func(path string, f os.FileInfo, err error) error {
+			if err != nil {
+				log.Fatal(err)
+			}
+			// if path is file, then launch search process
+			if !f.IsDir() {
+				fileVisit++
+
+				// launch goroutine to read file; add wait count
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					content, err := ioutil.ReadFile(path)
+					if err != nil {
+						if !verbose {
+							fmt.Print("")
+							return
+						}
+						fmt.Printf("%s FILE cannot be read\n", path)
+						return
+					}
+
+					// convert file contents to string
+					x := string(content)
+
+					// search file contents for keyword
+					search := strings.Contains(x, keyword)
+
+					switch search {
+					case true:
+						numFound++
+						found := true
+						filesFound <- walkresult{path, found}
+					case false:
+						found := false
+						filesFound <- walkresult{path, found}
+					}
+				}()
+			}
+			folderVisit++
+			return nil
+		})
+		go func() {
+			wg.Wait()
+			close(filesFound)
+			close(walkResult)
+		}()
+		walkResult <- err
+	}()
+
+	return filesFound, walkResult
+}
+
 func main() {
-	start := time.Now()
+	defer duration(time.Now(), "main")
+
 	fmt.Println("==================================")
 	fmt.Println("gosearch: A search in text utility written in Go.")
 	fmt.Println("searching...")
@@ -66,9 +168,6 @@ func main() {
 	flag.Parse()
 
 	ok := true
-	filesFound := 0
-	filesVisited := 0
-	foldersVisited := 0
 
 	if inputDir == "" {
 		ok = errorOut("Error: Missing path to directory")
@@ -80,68 +179,25 @@ func main() {
 		usage()
 		os.Exit(1)
 	}
-	// walk directory
-	err := filepath.Walk(inputDir, func(path string, f os.FileInfo, _ error) error {
-		// if files
-		if !f.IsDir() {
-			// check if file exists
-			exist := exists(path)
-			if !exist {
-				if !verbose {
-					return nil
-				}
-				fmt.Printf("%s DOES NOT EXIST\n", path)
-			} else {
-				filesVisited++
-				// read file
-				content, err := ioutil.ReadFile(path)
-				if err != nil {
-					if !verbose {
-						fmt.Print("")
-						return nil
-					}
-					fmt.Printf("%s FILE cannot be read\n", path)
-					return nil
-				}
 
-				// convert file contents to string
-				x := string(content)
-
-				// search file contents for keyword
-				search := strings.Contains(x, searchText)
-				switch search {
-				case true:
-					filesFound++
-					fmt.Printf("%s FILE contains %s\n", path, searchText)
-				case false:
-					if !verbose {
-						return nil
-					}
-					fmt.Printf("%s FILE does not contain %s\n", path, searchText)
-				}
-			}
-		} else {
-			// if directories
-			foldersVisited++
-			if !verbose {
-				fmt.Printf("")
-			} else {
-				fmt.Printf("%s FOLDER\n", path)
-			}
+	files, err := walkFiles(inputDir, searchText)
+	if err != nil {
+		fmt.Println(err)
+	}
+	for file := range files {
+		if file.found == true {
+			fmt.Println(file)
 		}
-		return nil
-	})
-	errorCheck(err)
-
+		if file.found == false && verbose {
+			fmt.Println(file)
+		}
+	}
 	// print summary
 	fmt.Println("==================================")
 	log.Println("")
 	fmt.Printf("Done searching for %s\n", searchText)
 	fmt.Printf("Path: %s\n", inputDir)
-	fmt.Printf("Checked %d files in %d directories\n", filesVisited, foldersVisited)
-	fmt.Printf("Found %d files containing %s\n", filesFound, searchText)
+	fmt.Printf("Checked %d files in %d directories\n", fileVisit, folderVisit)
+	fmt.Printf("Found %d files containing %s\n", numFound, searchText)
 	fmt.Println("==================================")
-	elapsed := time.Since(start)
-	fmt.Printf("Elapsed %s\n", elapsed)
-	//defer duration(time.Now(), "init")
 }
