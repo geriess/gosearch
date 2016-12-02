@@ -28,6 +28,7 @@ func usage() {
 	flag.PrintDefaults()
 }
 
+// timer
 func duration(start time.Time, name string) {
 	elapsed := time.Since(start)
 	fmt.Printf("func %s elapsed %s\n", name, elapsed)
@@ -44,8 +45,9 @@ func errorOut(message string) bool {
 	return false
 }
 
-func exists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
+// check path exists
+func exists(path string) bool {
+	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return false
 		}
@@ -61,60 +63,26 @@ func init() {
 	//TODO option to exclude hidden files in search
 }
 
-func readDir(path string) os.FileInfo {
-	var x os.FileInfo
-	files, err := ioutil.ReadDir(path)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, file := range files {
-		x = file
-		fmt.Println(file.Name(), file.IsDir())
-	}
-	return x
-}
-
-func walkDir(path string, f os.FileInfo, err error) error {
-	if err != nil {
-		fmt.Println(err)
-	} else {
-		fmt.Printf("%s with %d bytes\n", path, f.Size())
-	}
-	return nil
-}
-
-func getFiles(path string) {
-	err := filepath.Walk(path, walkDir)
-	if err != nil {
-		fmt.Printf(err.Error())
-	}
-}
-
 type walkresult struct {
 	path  string
 	found bool
 }
 
-func walkFiles(directory string, keyword string) (<-chan walkresult, <-chan error) {
-	// create channels
-	filesFound := make(chan walkresult)
-	walkResult := make(chan error, 1)
+func walkFiles(directory string, keyword string, filesFound chan walkresult, done chan bool) {
 
 	// launch goroutine to walk path; add wait count
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		err := filepath.Walk(directory, func(path string, f os.FileInfo, err error) error {
-			if err != nil {
-				log.Fatal(err)
-			}
-			// if path is file, then launch search process
+			errorCheck(err)
+			// launch search process for files only
 			if !f.IsDir() {
 				fileVisit++
 
 				// launch goroutine to read file; add wait count
 				wg.Add(1)
-				go func() {
+				go func(path string) {
 					defer wg.Done()
 					content, err := ioutil.ReadFile(path)
 					if err != nil {
@@ -126,10 +94,8 @@ func walkFiles(directory string, keyword string) (<-chan walkresult, <-chan erro
 						return
 					}
 
-					// convert file contents to string
-					x := string(content)
-
 					// search file contents for keyword
+					x := string(content)
 					search := strings.Contains(x, keyword)
 
 					switch search {
@@ -137,62 +103,90 @@ func walkFiles(directory string, keyword string) (<-chan walkresult, <-chan erro
 						numFound++
 						found := true
 						filesFound <- walkresult{path, found}
+						return
 					case false:
 						found := false
 						filesFound <- walkresult{path, found}
+						return
 					}
-				}()
+				}(path)
 			}
 			folderVisit++
 			return nil
 		})
+		// launch cleanup, but wait for goroutines to complete
 		go func() {
 			wg.Wait()
 			close(filesFound)
-			close(walkResult)
+			done <- true
+			<-done
+			fmt.Println("Close cleanup goroutine")
+			return
 		}()
-		walkResult <- err
+		// check errors for walk path
+		errorCheck(err)
+		fmt.Println("Close walk goroutine")
+		return
 	}()
-
-	return filesFound, walkResult
+	return
 }
 
 func main() {
+	// timer
 	defer duration(time.Now(), "main")
 
+	// user messaging
 	fmt.Println("==================================")
 	fmt.Println("gosearch: A search in text utility written in Go.")
 	fmt.Println("searching...")
 	fmt.Println("==================================")
 
+	// check args provided
 	flag.Parse()
-
 	ok := true
-
 	if inputDir == "" {
-		ok = errorOut("Error: Missing path to directory")
+		ok = errorOut("ERROR: Missing path to directory")
 	}
 	if searchText == "" {
-		ok = errorOut("Error: Missing keyword to search")
+		ok = errorOut("ERROR: Missing keyword to search")
+	}
+
+	// check path exists
+	verify := exists(inputDir)
+	if !verify {
+		ok = errorOut("ERROR: Path provided does not exist.")
 	}
 	if !ok {
 		usage()
 		os.Exit(1)
 	}
 
-	files, err := walkFiles(inputDir, searchText)
-	if err != nil {
-		fmt.Println(err)
-	}
-	for file := range files {
-		if file.found == true {
-			fmt.Println(file)
+	// create channels
+	filesFound := make(chan walkresult)
+	done := make(chan bool)
+
+	// start work
+	go walkFiles(inputDir, searchText, filesFound, done)
+
+	// loop through results channel and print
+work:
+	for {
+		select {
+		case print := <-filesFound:
+			if verbose && (print.found == false) {
+				fmt.Printf("%s does NOT contain %s\n", print.path, searchText)
+			}
+			if print.found == true {
+				fmt.Printf("%s contains %s\n", print.path, searchText)
+			}
+		case <-done:
+			fmt.Println("goroutines done. Closing work loop.")
+			done <- true
+			break work
 		}
-		if file.found == false && verbose {
-			fmt.Println(file)
-		}
 	}
-	// print summary
+
+	// print search summary, file counts
 	fmt.Println("==================================")
 	log.Println("")
 	fmt.Printf("Done searching for %s\n", searchText)
