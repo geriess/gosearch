@@ -21,6 +21,7 @@ var (
 	folderVisit int            // # of folders visited by search
 	wg          sync.WaitGroup // sync goroutines / channels
 	lock        sync.Mutex     // controls access to counters (race prevention)
+	maxFileSize int64          // max file size to search
 )
 
 func usage() {
@@ -57,11 +58,10 @@ func exists(path string) bool {
 }
 
 func init() {
+	maxFileSize = 512000000
 	flag.StringVar(&inputDir, "p", "", "Path to directory to search")
 	flag.StringVar(&searchText, "k", "", "Keyword to search")
 	flag.BoolVar(&verbose, "v", false, "Verbose (prints all files searched)")
-	//TODO option to return in JSON format
-	//TODO option to exclude hidden files in search
 }
 
 type walkresult struct {
@@ -83,7 +83,7 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 				fileVisit++
 				lock.Unlock()
 				// if file is within size limit, launch search
-				if f.Size() < 512000000 {
+				if f.Size() < maxFileSize {
 					wg.Add(1)
 					go func(path string) {
 						defer wg.Done()
