@@ -20,6 +20,7 @@ var (
 	fileVisit   int            // # of files visited by search
 	folderVisit int            // # of folders visited during search
 	wg          sync.WaitGroup // synchronize channels and goroutines
+	lock        sync.Mutex     // to control access to counters (race prevention)
 )
 
 func usage() {
@@ -100,7 +101,9 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 
 					switch search {
 					case true:
+						lock.Lock()
 						numFound++
+						lock.Unlock()
 						found := true
 						filesFound <- walkresult{path, found}
 						return
@@ -111,7 +114,9 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 					}
 				}(path)
 			}
+			lock.Lock()
 			folderVisit++
+			lock.Unlock()
 			return nil
 		})
 		// launch cleanup, but wait for goroutines to complete
@@ -194,4 +199,6 @@ work:
 	fmt.Printf("Checked %d files in %d directories\n", fileVisit, folderVisit)
 	fmt.Printf("Found %d files containing %s\n", numFound, searchText)
 	fmt.Println("==================================")
+
+	//panic("Oh my god")
 }
