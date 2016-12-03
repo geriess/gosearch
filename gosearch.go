@@ -18,9 +18,9 @@ var (
 	verbose     bool           // user input; if true displays all paths
 	numFound    int            // # of files matching keyword
 	fileVisit   int            // # of files visited by search
-	folderVisit int            // # of folders visited during search
-	wg          sync.WaitGroup // synchronize channels and goroutines
-	lock        sync.Mutex     // to control access to counters (race prevention)
+	folderVisit int            // # of folders visited by search
+	wg          sync.WaitGroup // sync goroutines / channels
+	lock        sync.Mutex     // controls access to counters (race prevention)
 )
 
 func usage() {
@@ -79,40 +79,43 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 			errorCheck(err)
 			// launch search process for files only
 			if !f.IsDir() {
+				lock.Lock()
 				fileVisit++
-
-				// launch goroutine to read file; add wait count
-				wg.Add(1)
-				go func(path string) {
-					defer wg.Done()
-					content, err := ioutil.ReadFile(path)
-					if err != nil {
-						if !verbose {
-							fmt.Print("")
+				lock.Unlock()
+				// if file is within size limit, launch search
+				if f.Size() < 512000000 {
+					wg.Add(1)
+					go func(path string) {
+						defer wg.Done()
+						content, err := ioutil.ReadFile(path)
+						if err != nil {
+							if !verbose {
+								return
+							}
+							fmt.Printf("%s FILE cannot be read\n", path)
 							return
 						}
-						fmt.Printf("%s FILE cannot be read\n", path)
-						return
-					}
 
-					// search file contents for keyword
-					x := string(content)
-					search := strings.Contains(x, keyword)
+						// search file contents for keyword
+						x := string(content)
+						search := strings.Contains(x, keyword)
 
-					switch search {
-					case true:
-						lock.Lock()
-						numFound++
-						lock.Unlock()
-						found := true
-						filesFound <- walkresult{path, found}
-						return
-					case false:
-						found := false
-						filesFound <- walkresult{path, found}
-						return
-					}
-				}(path)
+						switch search {
+						case true:
+							lock.Lock()
+							numFound++
+							lock.Unlock()
+							found := true
+							filesFound <- walkresult{path, found}
+							return
+						case false:
+							found := false
+							filesFound <- walkresult{path, found}
+							return
+						}
+					}(path)
+				}
+
 			}
 			lock.Lock()
 			folderVisit++
@@ -200,5 +203,4 @@ work:
 	fmt.Printf("Found %d files containing %s\n", numFound, searchText)
 	fmt.Println("==================================")
 
-	//panic("Oh my god")
 }
