@@ -187,6 +187,7 @@ func fileCount() {
 	lock.Unlock()
 }
 
+// waits for goroutines to complete, sets done signal and closes channels
 func cleanup(filesFound chan walkresult, done chan bool) {
 	wg.Wait()
 	log.Println("Performing cleanup.")
@@ -223,16 +224,17 @@ func main() {
 	ok := true
 	if inputDir == "" {
 		ok = errorOut("ERROR: Missing path to directory")
+	} else {
+		// check path exists
+		verify := exists(inputDir)
+		if !verify {
+			ok = errorOut("ERROR: Path provided does not exist.")
+		}
 	}
 	if searchText == "" {
 		ok = errorOut("ERROR: Missing keyword to search")
 	}
 
-	// check path exists
-	verify := exists(inputDir)
-	if !verify {
-		ok = errorOut("ERROR: Path provided does not exist.")
-	}
 	if !ok {
 		usage()
 		os.Exit(1)
