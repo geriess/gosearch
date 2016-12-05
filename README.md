@@ -44,7 +44,9 @@ The output of the utility includes:
 
 - `files` - utility output of path to files whose contents match keyword
 
-- `find count` - utility output with count of files whose contents match keyword
+- `found files count` - utility output with count of files whose contents or name match keyword
+
+- `found folder count` - utility output with count of folders whose name match keyword
 
 - `timestamp` - utility output of date and time of search
 
@@ -58,10 +60,8 @@ If Verbose is selected by user:
 
 - `files not matching` - utility output of path to files whose contents did not match keyword
 
-- `read errors` - utility output of path to files that could not be read (e.g. file does not exist)  
+- `read errors` - utility output of path to files that could not be read (e.g. file too big)  
 
 
-Current version is 0.1.0
-=========================
 
 If you have any comments or feature requests please let me know.
