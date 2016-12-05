@@ -18,11 +18,19 @@ var (
 	verbose     bool           // user input; if true displays all paths
 	numFound    int            // # of files matching keyword
 	fileVisit   int            // # of files visited by search
+	dirFound    int            // # of directories matching keyword
 	folderVisit int            // # of folders visited by search
 	wg          sync.WaitGroup // sync goroutines / channels
-	lock        sync.Mutex     // controls access to counters (race prevention)
-	maxFileSize int64          // max file size to search
+	lock        sync.Mutex     // control access to counters (race prevention)
+	maxSize     int64          // max file size
 )
+
+type walkresult struct {
+	path  string
+	name  string
+	found bool
+	isDir bool
+}
 
 func usage() {
 	fmt.Println("Usage:")
@@ -30,7 +38,14 @@ func usage() {
 	flag.PrintDefaults()
 }
 
-// timer
+func init() {
+	maxSize = 512000000
+	flag.StringVar(&inputDir, "p", "", "Path to directory to search")
+	flag.StringVar(&searchText, "k", "", "Keyword to search")
+	flag.BoolVar(&verbose, "v", false, "Verbose (prints all files searched)")
+}
+
+// duration keeps track of functions elapsed time
 func duration(start time.Time, name string) {
 	elapsed := time.Since(start)
 	fmt.Printf("func %s elapsed %s\n", name, elapsed)
@@ -57,18 +72,7 @@ func exists(path string) bool {
 	return true
 }
 
-func init() {
-	maxFileSize = 512000000
-	flag.StringVar(&inputDir, "p", "", "Path to directory to search")
-	flag.StringVar(&searchText, "k", "", "Keyword to search")
-	flag.BoolVar(&verbose, "v", false, "Verbose (prints all files searched)")
-}
-
-type walkresult struct {
-	path  string
-	found bool
-}
-
+// walkFiles walks all files and sub-directory paths
 func walkFiles(directory string, keyword string, filesFound chan walkresult, done chan bool) {
 
 	// launch goroutine to walk path; add wait count
@@ -77,61 +81,31 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 		defer wg.Done()
 		err := filepath.Walk(directory, func(path string, f os.FileInfo, err error) error {
 			errorCheck(err)
-			// launch search process for files only
+
+			// if file launch main search process
 			if !f.IsDir() {
-				lock.Lock()
-				fileVisit++
-				lock.Unlock()
-				// if file is within size limit, launch search
-				if f.Size() < maxFileSize {
+				fileCount()
+
+				// only launch search if file is under size limit,
+				if f.Size() < maxSize {
 					wg.Add(1)
-					go func(path string) {
-						defer wg.Done()
-						content, err := ioutil.ReadFile(path)
-						if err != nil {
-							if !verbose {
-								return
-							}
-							fmt.Printf("%s FILE cannot be read\n", path)
-							return
-						}
-
-						// search file contents for keyword
-						x := string(content)
-						search := strings.Contains(x, keyword)
-
-						switch search {
-						case true:
-							lock.Lock()
-							numFound++
-							lock.Unlock()
-							found := true
-							filesFound <- walkresult{path, found}
-							return
-						case false:
-							found := false
-							filesFound <- walkresult{path, found}
-							return
-						}
-					}(path)
+					go readFile(path, f.IsDir(), f.Name(), filesFound)
+				} else {
+					fmt.Printf("%s skipped. File too large.", path)
 				}
-
 			}
-			lock.Lock()
-			folderVisit++
-			lock.Unlock()
+
+			// folder path, increment count
+			folderCount()
+			wg.Add(1)
+			go searchPath(path, f.Name(), f.IsDir(), filesFound)
 			return nil
 		})
-		// launch cleanup, but wait for goroutines to complete
-		go func() {
-			wg.Wait()
-			close(filesFound)
-			done <- true
-			<-done
-			fmt.Println("Close cleanup goroutine")
-			return
-		}()
-		// check errors for walk path
+
+		// launch cleanup, but sync wait until goroutines complete
+		go cleanup(filesFound, done)
+
+		// check errors for walk func
 		errorCheck(err)
 		fmt.Println("Close walk goroutine")
 		return
@@ -139,8 +113,103 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 	return
 }
 
+// readFile puts contents of file in memory
+func readFile(path string, isDir bool, name string, filesFound chan walkresult) {
+	defer wg.Done()
+	content, err := ioutil.ReadFile(path)
+	if err != nil {
+		if !verbose {
+			return
+		}
+		fmt.Printf("%s FILE cannot be read\n", path)
+		return
+	}
+	wg.Add(1)
+	go searchFile(path, content, isDir, name, filesFound)
+}
+
+// searchFile parses the contents of file looking for keyword
+func searchFile(path string, content []byte, isDir bool, name string, filesFound chan walkresult) {
+	defer wg.Done()
+	x := string(content)
+	search := strings.Contains(x, searchText)
+	switch search {
+	case true:
+		lock.Lock()
+		numFound++
+		lock.Unlock()
+		found := true
+		filesFound <- walkresult{path, name, found, isDir}
+		return
+	case false:
+		found := false
+		filesFound <- walkresult{path, name, found, isDir}
+		return
+	}
+}
+
+// searchPath searches match in file or folder name
+func searchPath(path string, name string, isDir bool, filesFound chan walkresult) {
+	defer wg.Done()
+	search := strings.Contains(name, searchText)
+	switch search {
+	case true:
+		if isDir {
+			lock.Lock()
+			dirFound++
+			lock.Unlock()
+		} else {
+			lock.Lock()
+			numFound++
+			lock.Unlock()
+		}
+		found := true
+		filesFound <- walkresult{path, name, found, isDir}
+		return
+	case false:
+		found := false
+		filesFound <- walkresult{path, name, found, isDir}
+		return
+	}
+}
+
+// folderCount keeps count of folders visited during search
+func folderCount() {
+	lock.Lock()
+	folderVisit++
+	lock.Unlock()
+}
+
+// fileCount keeps count of files visited during search
+func fileCount() {
+	lock.Lock()
+	fileVisit++
+	lock.Unlock()
+}
+
+func cleanup(filesFound chan walkresult, done chan bool) {
+	wg.Wait()
+	log.Println("Performing cleanup.")
+	close(filesFound)
+	done <- true
+	<-done
+	close(done)
+	return
+}
+
+// summary prints results, counts, lets user know search is done
+func summary() {
+	fmt.Println("==================================")
+	fmt.Printf("Done searching for %s\n", searchText)
+	fmt.Printf("Path: %s\n", inputDir)
+	fmt.Printf("Checked %d files in %d folders\n", fileVisit, folderVisit)
+	fmt.Printf("Found %d files containing %s\n", numFound, searchText)
+	fmt.Printf("Found %d folders containing %s\n", dirFound, searchText)
+	fmt.Println("==================================")
+}
+
 func main() {
-	// timer
+	// main timer
 	defer duration(time.Now(), "main")
 
 	// user messaging
@@ -173,34 +242,34 @@ func main() {
 	filesFound := make(chan walkresult)
 	done := make(chan bool)
 
-	// start work
+	// start search work
 	go walkFiles(inputDir, searchText, filesFound, done)
 
-	// loop through results channel and print
-work:
+	// receive channel results and print
+loop:
 	for {
 		select {
 		case print := <-filesFound:
-			if verbose && (print.found == false) {
+			if (len(print.path) > 0) && verbose && (print.found == false) {
 				fmt.Printf("%s does NOT contain %s\n", print.path, searchText)
 			}
 			if print.found == true {
-				fmt.Printf("%s contains %s\n", print.path, searchText)
+				switch print.isDir {
+				case true:
+					fmt.Printf("%s folder contains %s\n", print.path, searchText)
+				case false:
+					fmt.Printf("%s file contains %s\n", print.path, searchText)
+				}
+
 			}
 		case <-done:
-			fmt.Println("goroutines done. Closing work loop.")
+			fmt.Println("==================================")
+			log.Println("Search complete.")
 			done <- true
-			break work
+			break loop
 		}
 	}
 
 	// print search summary, file counts
-	fmt.Println("==================================")
-	log.Println("")
-	fmt.Printf("Done searching for %s\n", searchText)
-	fmt.Printf("Path: %s\n", inputDir)
-	fmt.Printf("Checked %d files in %d directories\n", fileVisit, folderVisit)
-	fmt.Printf("Found %d files containing %s\n", numFound, searchText)
-	fmt.Println("==================================")
-
+	summary()
 }
