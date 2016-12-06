@@ -26,10 +26,12 @@ var (
 )
 
 type walkresult struct {
-	path  string
-	name  string
-	found bool
-	isDir bool
+	path    string
+	name    string
+	found   bool
+	isDir   bool
+	size    int64
+	modTime time.Time
 }
 
 func usage() {
@@ -89,7 +91,7 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 				// only launch search if file is under size limit,
 				if f.Size() < maxSize {
 					wg.Add(1)
-					go readFile(path, f.IsDir(), f.Name(), filesFound)
+					go readFile(path, f, filesFound)
 				} else {
 					fmt.Printf("%s skipped. File too large.", path)
 				}
@@ -98,7 +100,7 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 			// folder path, increment count
 			folderCount()
 			wg.Add(1)
-			go searchPath(path, f.Name(), f.IsDir(), filesFound)
+			go searchPath(path, f, filesFound)
 			return nil
 		})
 
@@ -114,7 +116,7 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 }
 
 // readFile puts contents of file in memory
-func readFile(path string, isDir bool, name string, filesFound chan walkresult) {
+func readFile(path string, f os.FileInfo, filesFound chan walkresult) {
 	defer wg.Done()
 	content, err := ioutil.ReadFile(path)
 	if err != nil {
@@ -125,11 +127,11 @@ func readFile(path string, isDir bool, name string, filesFound chan walkresult) 
 		return
 	}
 	wg.Add(1)
-	go searchFile(path, content, isDir, name, filesFound)
+	go searchFile(path, content, f, filesFound)
 }
 
 // searchFile parses the contents of file looking for keyword
-func searchFile(path string, content []byte, isDir bool, name string, filesFound chan walkresult) {
+func searchFile(path string, content []byte, f os.FileInfo, filesFound chan walkresult) {
 	defer wg.Done()
 	x := string(content)
 	search := strings.Contains(x, searchText)
@@ -139,22 +141,22 @@ func searchFile(path string, content []byte, isDir bool, name string, filesFound
 		numFound++
 		lock.Unlock()
 		found := true
-		filesFound <- walkresult{path, name, found, isDir}
+		filesFound <- walkresult{path, f.Name(), found, f.IsDir(), f.Size(), f.ModTime()}
 		return
 	case false:
 		found := false
-		filesFound <- walkresult{path, name, found, isDir}
+		filesFound <- walkresult{path, f.Name(), found, f.IsDir(), f.Size(), f.ModTime()}
 		return
 	}
 }
 
 // searchPath searches match in file or folder name
-func searchPath(path string, name string, isDir bool, filesFound chan walkresult) {
+func searchPath(path string, f os.FileInfo, filesFound chan walkresult) {
 	defer wg.Done()
-	search := strings.Contains(name, searchText)
+	search := strings.Contains(f.Name(), searchText)
 	switch search {
 	case true:
-		if isDir {
+		if f.IsDir() {
 			lock.Lock()
 			dirFound++
 			lock.Unlock()
@@ -164,11 +166,11 @@ func searchPath(path string, name string, isDir bool, filesFound chan walkresult
 			lock.Unlock()
 		}
 		found := true
-		filesFound <- walkresult{path, name, found, isDir}
+		filesFound <- walkresult{path, f.Name(), found, f.IsDir(), f.Size(), f.ModTime()}
 		return
 	case false:
 		found := false
-		filesFound <- walkresult{path, name, found, isDir}
+		filesFound <- walkresult{path, f.Name(), found, f.IsDir(), f.Size(), f.ModTime()}
 		return
 	}
 }
