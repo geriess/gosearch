@@ -109,7 +109,6 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 
 		// check errors for walk func
 		errorCheck(err)
-		fmt.Println("Close walk goroutine")
 		return
 	}()
 	return
@@ -192,7 +191,6 @@ func fileCount() {
 // waits for goroutines to complete, sets done signal and closes channels
 func cleanup(filesFound chan walkresult, done chan bool) {
 	wg.Wait()
-	log.Println("Performing cleanup.")
 	close(filesFound)
 	done <- true
 	<-done
