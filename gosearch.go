@@ -41,7 +41,7 @@ func usage() {
 }
 
 func init() {
-	maxSize = 512000000
+	maxSize = 100 * 1024 * 1024
 	flag.StringVar(&inputDir, "p", "", "Path to directory to search")
 	flag.StringVar(&searchText, "k", "", "Keyword to search")
 	flag.BoolVar(&verbose, "v", false, "Verbose (prints all files searched)")
