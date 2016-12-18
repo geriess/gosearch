@@ -4,12 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 var (
@@ -41,13 +42,19 @@ func usage() {
 }
 
 func init() {
+	// log set to JSON format
+	log.SetFormatter(&log.JSONFormatter{})
+
+	// max file size to process
 	maxSize = 100 * 1024 * 1024
+
+	// flag init
 	flag.StringVar(&inputDir, "p", "", "Path to directory to search")
 	flag.StringVar(&searchText, "k", "", "Keyword to search")
 	flag.BoolVar(&verbose, "v", false, "Verbose (prints all files searched)")
 }
 
-// duration keeps track of functions elapsed time
+// duration keeps track of function elapsed time
 func duration(start time.Time, name string) {
 	elapsed := time.Since(start)
 	fmt.Printf("func %s elapsed %s\n", name, elapsed)
@@ -201,11 +208,11 @@ func cleanup(filesFound chan walkresult, done chan bool) {
 // summary prints results, counts, lets user know search is done
 func summary() {
 	fmt.Println("==================================")
-	fmt.Printf("Done searching for %s\n", searchText)
-	fmt.Printf("Path: %s\n", inputDir)
-	fmt.Printf("Checked %d files in %d folders\n", fileVisit, folderVisit)
-	fmt.Printf("Found %d files containing %s\n", numFound, searchText)
-	fmt.Printf("Found %d folders containing %s\n", dirFound, searchText)
+	log.Printf("Done searching for %s\n", searchText)
+	log.Printf("Path: %s\n", inputDir)
+	log.Printf("Checked %d files in %d folders\n", fileVisit, folderVisit)
+	log.Printf("Found %d files containing %s\n", numFound, searchText)
+	log.Printf("Found %d folders containing %s\n", dirFound, searchText)
 	fmt.Println("==================================")
 }
 
@@ -253,14 +260,35 @@ loop:
 		select {
 		case print := <-filesFound:
 			if (len(print.path) > 0) && verbose && (print.found == false) {
-				fmt.Printf("%s does NOT contain %s\n", print.path, searchText)
+				switch print.isDir {
+				case true:
+					log.WithFields(log.Fields{
+						"type": "folder",
+						"name": print.name,
+						"path": print.path,
+					}).Info("Match NOT found.")
+				case false:
+					log.WithFields(log.Fields{
+						"type": "file",
+						"name": print.name,
+						"path": print.path,
+					}).Info("Match NOT found.")
+				}
 			}
 			if print.found == true {
 				switch print.isDir {
 				case true:
-					fmt.Printf("%s folder contains %s\n", print.path, searchText)
+					log.WithFields(log.Fields{
+						"type": "folder",
+						"name": print.name,
+						"path": print.path,
+					}).Info("Match found.")
 				case false:
-					fmt.Printf("%s file contains %s\n", print.path, searchText)
+					log.WithFields(log.Fields{
+						"type": "file",
+						"name": print.name,
+						"path": print.path,
+					}).Info("Match found.")
 				}
 
 			}
