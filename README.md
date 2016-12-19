@@ -27,11 +27,17 @@ gosearch -p path -k keyword
 
 **[OPTIONS]**
 
-- `-k` : Keyword to search
+- `-k` : Keyword to search (required)
 
-- `-p` : Path to directory to search
+- `-p` : Path to directory to search (required)
 
-- `-v` : Verbose (prints all files searched)
+- `-s` : Max file size to search in MB
+
+- `-v` : Verbose prints all files searched
+
+- `-j` : Output in JSON format
+
+- `-h` : Print help menu
 
 
 ### Results:
