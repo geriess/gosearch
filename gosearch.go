@@ -26,7 +26,6 @@ var (
 	maxSize     int64          // max file size
 	json        bool           // output in json if true
 	help        bool           // display help if true
-	// output      string         // output file name
 )
 
 // walkresult struct for result document
@@ -55,7 +54,6 @@ func init() {
 	flag.StringVar(&searchText, "k", "", "Keyword to search")
 	flag.Int64Var(&maxSize, "s", 100, "Max file size to search in MB - optional")
 	flag.BoolVar(&json, "j", false, "Output in JSON - optional")
-	// flag.StringVar(&output, "o", "out.log", "Output file name - optional")
 	flag.BoolVar(&verbose, "v", false, "Verbose = optional (prints all files searched)")
 	flag.BoolVar(&help, "h", false, "Print help menu")
 }
@@ -268,17 +266,6 @@ func main() {
 		// The TextFormatter is default, you don't actually have to do this.
 		log.SetFormatter(&log.TextFormatter{})
 	}
-
-	// output file definition
-	/*
-		out, err := os.OpenFile(output, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if err != nil {
-			log.Fatalf("error opening log file: %v", err)
-		}
-		defer out.Close()
-		multi := io.MultiWriter(out, os.Stdout)
-		log.SetOutput(multi)
-	*/
 
 	// create channels
 	filesFound := make(chan walkresult)
