@@ -24,8 +24,12 @@ var (
 	wg          sync.WaitGroup // sync goroutines / channels
 	lock        sync.Mutex     // control access to counters (race prevention)
 	maxSize     int64          // max file size
+	json        bool           // output in json if true
+	help        bool           // display help if true
+	// output      string         // output file name
 )
 
+// walkresult struct for result document
 type walkresult struct {
 	path    string
 	name    string
@@ -36,28 +40,30 @@ type walkresult struct {
 }
 
 func usage() {
+	// user messaging
+	fmt.Println("==================================")
+	fmt.Println("gosearch: A search-in-text utility written in Go.")
+	fmt.Println("==================================")
 	fmt.Println("Usage:")
 	fmt.Println("    gosearch [OPTIONS] -p path -k keyword")
 	flag.PrintDefaults()
 }
 
 func init() {
-	// log set to JSON format
-	log.SetFormatter(&log.JSONFormatter{})
-
-	// max file size to process
-	maxSize = 100 * 1024 * 1024
-
 	// flag init
-	flag.StringVar(&inputDir, "p", "", "Path to directory to search")
+	flag.StringVar(&inputDir, "p", "", "Path of directory to search")
 	flag.StringVar(&searchText, "k", "", "Keyword to search")
-	flag.BoolVar(&verbose, "v", false, "Verbose (prints all files searched)")
+	flag.Int64Var(&maxSize, "s", 100, "Max file size to search in MB - optional")
+	flag.BoolVar(&json, "j", false, "Output in JSON - optional")
+	// flag.StringVar(&output, "o", "out.log", "Output file name - optional")
+	flag.BoolVar(&verbose, "v", false, "Verbose = optional (prints all files searched)")
+	flag.BoolVar(&help, "h", false, "Print help menu")
 }
 
 // duration keeps track of function elapsed time
 func duration(start time.Time, name string) {
 	elapsed := time.Since(start)
-	fmt.Printf("func %s elapsed %s\n", name, elapsed)
+	log.Printf("func %s elapsed %s\n", name, elapsed)
 }
 
 func errorCheck(err error) {
@@ -96,11 +102,15 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 				fileCount()
 
 				// only launch search if file is under size limit,
-				if f.Size() < maxSize {
+				if f.Size() < maxSize*1024*1024 {
 					wg.Add(1)
 					go readFile(path, f, filesFound)
 				} else {
-					fmt.Printf("%s skipped. File too large.", path)
+					log.WithFields(log.Fields{
+						"type": "file",
+						"name": f.Name(),
+						"path": path,
+					}).Warn("Skip file too large: ", f.Size())
 				}
 			}
 
@@ -121,7 +131,7 @@ func walkFiles(directory string, keyword string, filesFound chan walkresult, don
 	return
 }
 
-// readFile puts contents of file in memory
+// readFile puts contents of file in memory, starts search
 func readFile(path string, f os.FileInfo, filesFound chan walkresult) {
 	defer wg.Done()
 	content, err := ioutil.ReadFile(path)
@@ -129,7 +139,11 @@ func readFile(path string, f os.FileInfo, filesFound chan walkresult) {
 		if !verbose {
 			return
 		}
-		fmt.Printf("%s FILE cannot be read\n", path)
+		log.WithFields(log.Fields{
+			"type": "file",
+			"name": f.Name(),
+			"path": path,
+		}).Warn("File cannot be read", f.Size())
 		return
 	}
 	wg.Add(1)
@@ -206,29 +220,29 @@ func cleanup(filesFound chan walkresult, done chan bool) {
 }
 
 // summary prints results, counts, lets user know search is done
-func summary() {
-	fmt.Println("==================================")
-	log.Printf("Done searching for %s\n", searchText)
-	log.Printf("Path: %s\n", inputDir)
-	log.Printf("Checked %d files in %d folders\n", fileVisit, folderVisit)
-	log.Printf("Found %d files containing %s\n", numFound, searchText)
-	log.Printf("Found %d folders containing %s\n", dirFound, searchText)
-	fmt.Println("==================================")
+func summary(searchText string, path string) {
+	log.WithFields(log.Fields{
+		"searchString":   searchText,  // text to search
+		"path":           path,        // file path requeted to search
+		"filesChecked":   fileVisit,   // num of files visited during search
+		"foldersChecked": folderVisit, // num of folders visited during search
+		"filesFound":     numFound,    // num of files that contain match for search string
+		"foldersFound":   dirFound,    // num of folders that contain match for search string
+	}).Info("Search completed")
 }
 
 func main() {
 	// main timer
 	defer duration(time.Now(), "main")
 
-	// user messaging
-	fmt.Println("==================================")
-	fmt.Println("gosearch: A search in text utility written in Go.")
-	fmt.Println("searching...")
-	fmt.Println("==================================")
-
 	// check args provided
 	flag.Parse()
 	ok := true
+
+	if help == true {
+		usage()
+		os.Exit(1)
+	}
 	if inputDir == "" {
 		ok = errorOut("ERROR: Missing path to directory")
 	} else {
@@ -247,9 +261,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	// log set to JSON format
+	if json == true {
+		log.SetFormatter(&log.JSONFormatter{})
+	} else {
+		// The TextFormatter is default, you don't actually have to do this.
+		log.SetFormatter(&log.TextFormatter{})
+	}
+
+	// output file definition
+	/*
+		out, err := os.OpenFile(output, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatalf("error opening log file: %v", err)
+		}
+		defer out.Close()
+		multi := io.MultiWriter(out, os.Stdout)
+		log.SetOutput(multi)
+	*/
+
 	// create channels
 	filesFound := make(chan walkresult)
 	done := make(chan bool)
+
+	// notify user search started
+	log.WithFields(log.Fields{
+		"searchString": searchText,
+		"path":         inputDir,
+	}).Info("Search started")
 
 	// start search work
 	go walkFiles(inputDir, searchText, filesFound, done)
@@ -266,13 +305,13 @@ loop:
 						"type": "folder",
 						"name": print.name,
 						"path": print.path,
-					}).Info("Match NOT found.")
+					}).Info("Match not found")
 				case false:
 					log.WithFields(log.Fields{
 						"type": "file",
 						"name": print.name,
 						"path": print.path,
-					}).Info("Match NOT found.")
+					}).Info("Match not found")
 				}
 			}
 			if print.found == true {
@@ -282,24 +321,22 @@ loop:
 						"type": "folder",
 						"name": print.name,
 						"path": print.path,
-					}).Info("Match found.")
+					}).Info("Match found")
 				case false:
 					log.WithFields(log.Fields{
 						"type": "file",
 						"name": print.name,
 						"path": print.path,
-					}).Info("Match found.")
+					}).Info("Match found")
 				}
 
 			}
 		case <-done:
-			fmt.Println("==================================")
-			log.Println("Search complete.")
 			done <- true
 			break loop
 		}
 	}
 
 	// print search summary, file counts
-	summary()
+	summary(searchText, inputDir)
 }
