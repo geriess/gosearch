@@ -71,3 +71,13 @@ If Verbose is selected by user:
 
 
 If you have any comments or feature requests please let me know.
+
+## To-Do
+
+Optimize with GOMACPROCS, see commentsl from thread below:
+
+No, those are the "procs". In Go scheduler's lingo, there are three different concepts:
+* "G": these are goroutines
+* * "M": these are OS-level threads (the ones I was mentioning). These are bounded by debug.SetMaxThreads (default: 10000).
+* * "P": these are basically locks that Ms must acquire to run Go code. These are bounded by GOMAXPROCS.
+* So when you way "GOMAXPROCS=2", you're saying "I want at most two Gs executing code simultaneously", but you can still have a very high number of OS-level threads that are I/O blocked. Notice that when a G does a blocking I/O there are two possibilities: if it's a pollable operation, the handle is passed to the epoll/kqueue thread, the M releases its P and is recycled to do something else. If it's a non-pollable operation, the M releases the P but stays allocated to wait for the operation to finish (e.g.: the syscall to return). At that point, given that at least one P is free, any ready G can be scheduled, but a new M might be needed.
